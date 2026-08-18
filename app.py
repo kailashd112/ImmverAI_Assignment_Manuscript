@@ -1,16 +1,44 @@
+# ============================================================
+# SYNTHETIC INDIC MANUSCRIPT GENERATOR
+# STREAMLIT VERSION
+# ============================================================
+#
+# Supported:
+#   Devanagari
+#   Modi
+#   Sharada
+#
+# Input:
+#   Unicode text
+#   TXT
+#   PDF
+#   DOCX / Word
+#
+# Output:
+#   Manuscript PNG
+#   Markdown annotation
+#
+# ============================================================
+
 import os
 import random
 import requests
+import io
+
 import numpy as np
 import streamlit as st
 
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
-from pypdf import PdfReader
+
+# PDF
+import PyPDF2
+
+# Word
 from docx import Document
 
 
 # ============================================================
-# 1. PAGE CONFIGURATION
+# PAGE CONFIGURATION
 # ============================================================
 
 st.set_page_config(
@@ -21,12 +49,10 @@ st.set_page_config(
 
 
 # ============================================================
-# 2. PROJECT DIRECTORIES
+# PROJECT DIRECTORIES
 # ============================================================
 
-BASE_DIR = os.path.dirname(
-    os.path.abspath(__file__)
-)
+BASE_DIR = "manuscript_project"
 
 FONT_DIR = os.path.join(BASE_DIR, "fonts")
 
@@ -56,6 +82,8 @@ ANNOTATION_DIR = os.path.join(
 )
 
 
+# Create directories
+
 for folder in [
     BASE_DIR,
     FONT_DIR,
@@ -65,6 +93,7 @@ for folder in [
     OUTPUT_DIR,
     ANNOTATION_DIR
 ]:
+
     os.makedirs(
         folder,
         exist_ok=True
@@ -72,53 +101,71 @@ for folder in [
 
 
 # ============================================================
-# 3. FONT PATHS
+# FONT PATHS
 # ============================================================
+
+DEVANAGARI_FONT = os.path.join(
+    DEVANAGARI_DIR,
+    "NotoSansDevanagari-Regular.ttf"
+)
+
+MODI_FONT = os.path.join(
+    MODI_DIR,
+    "NotoSansModi-Regular.ttf"
+)
+
+SHARADA_FONT = os.path.join(
+    SHARADA_DIR,
+    "NotoSansSharada-Regular.ttf"
+)
+
 
 FONT_PATHS = {
 
-    "Devanagari": os.path.join(
-        DEVANAGARI_DIR,
-        "NotoSansDevanagari-Regular.ttf"
-    ),
+    "Devanagari":
+        DEVANAGARI_FONT,
 
-    "Modi": os.path.join(
-        MODI_DIR,
-        "NotoSansModi-Regular.ttf"
-    ),
+    "Modi":
+        MODI_FONT,
 
-    "Sharada": os.path.join(
-        SHARADA_DIR,
-        "NotoSansSharada-Regular.ttf"
-    )
+    "Sharada":
+        SHARADA_FONT
 }
 
 
 # ============================================================
-# 4. FONT DOWNLOAD URLS
+# FONT DOWNLOAD URLS
 # ============================================================
 
 FONT_URLS = {
 
     "Devanagari": [
+
         "https://notofonts.github.io/devanagari/fonts/NotoSansDevanagari/full/ttf/NotoSansDevanagari-Regular.ttf",
-        "https://raw.githubusercontent.com/notofonts/devanagari/main/fonts/ttf/NotoSansDevanagari/NotoSansDevanagari-Regular.ttf"
+
+        "https://raw.githubusercontent.com/notofonts/devanagari/main/fonts/ttf/NotoSansDevanagari/NotoSansDevanagari-Regular.ttf",
+
+        "https://raw.githubusercontent.com/openmaptiles/fonts/master/noto-sans/NotoSansDevanagari-Regular.ttf"
     ],
 
     "Modi": [
+
         "https://notofonts.github.io/modi/fonts/NotoSansModi/full/ttf/NotoSansModi-Regular.ttf",
+
         "https://raw.githubusercontent.com/notofonts/modi/main/fonts/ttf/NotoSansModi/NotoSansModi-Regular.ttf"
     ],
 
     "Sharada": [
+
         "https://notofonts.github.io/sharada/fonts/NotoSansSharada/full/ttf/NotoSansSharada-Regular.ttf",
+
         "https://raw.githubusercontent.com/notofonts/sharada/main/fonts/ttf/NotoSansSharada/NotoSansSharada-Regular.ttf"
     ]
 }
 
 
 # ============================================================
-# 5. FONT VALIDATION
+# VALIDATE FONT
 # ============================================================
 
 def validate_font_file(file_path):
@@ -128,22 +175,80 @@ def validate_font_file(file_path):
 
     try:
 
-        if os.path.getsize(file_path) < 10000:
+        file_size = os.path.getsize(file_path)
+
+        if file_size < 10000:
             return False
 
-        font = ImageFont.truetype(
+        test_font = ImageFont.truetype(
             file_path,
             32
         )
 
-        return font is not None
+        return test_font is not None
 
     except Exception:
         return False
 
 
 # ============================================================
-# 6. DOWNLOAD FONT
+# DOWNLOAD FONT
+# ============================================================
+
+def download_font(script, urls, output_path):
+
+    if validate_font_file(output_path):
+        return True
+
+    for url in urls:
+
+        try:
+
+            response = requests.get(
+                url,
+                timeout=60,
+                headers={
+                    "User-Agent": "Mozilla/5.0"
+                }
+            )
+
+            if response.status_code != 200:
+                continue
+
+            if len(response.content) < 10000:
+                continue
+
+            temp_path = output_path + ".tmp"
+
+            with open(
+                temp_path,
+                "wb"
+            ) as file:
+
+                file.write(
+                    response.content
+                )
+
+            if validate_font_file(temp_path):
+
+                os.replace(
+                    temp_path,
+                    output_path
+                )
+
+                return True
+
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+        except Exception:
+            continue
+
+    return False
+
+
+# ============================================================
+# FONT SETUP
 # ============================================================
 
 @st.cache_resource
@@ -153,73 +258,11 @@ def setup_fonts():
 
     for script in FONT_PATHS:
 
-        output_path = FONT_PATHS[script]
-
-        if validate_font_file(
-            output_path
-        ):
-
-            status[script] = True
-            continue
-
-        status[script] = False
-
-        for url in FONT_URLS[script]:
-
-            try:
-
-                response = requests.get(
-                    url,
-                    timeout=60,
-                    headers={
-                        "User-Agent":
-                        "Mozilla/5.0"
-                    }
-                )
-
-                if response.status_code != 200:
-                    continue
-
-                if len(response.content) < 10000:
-                    continue
-
-                temp_path = (
-                    output_path
-                    + ".tmp"
-                )
-
-                with open(
-                    temp_path,
-                    "wb"
-                ) as file:
-
-                    file.write(
-                        response.content
-                    )
-
-                if validate_font_file(
-                    temp_path
-                ):
-
-                    os.replace(
-                        temp_path,
-                        output_path
-                    )
-
-                    status[script] = True
-
-                    break
-
-                if os.path.exists(
-                    temp_path
-                ):
-
-                    os.remove(
-                        temp_path
-                    )
-
-            except Exception:
-                continue
+        status[script] = download_font(
+            script,
+            FONT_URLS[script],
+            FONT_PATHS[script]
+        )
 
     return status
 
@@ -228,7 +271,136 @@ font_status = setup_fonts()
 
 
 # ============================================================
-# 7. CREATE AGED PAPER
+# EXTRACT TEXT FROM TXT
+# ============================================================
+
+def extract_txt(uploaded_file):
+
+    try:
+
+        data = uploaded_file.read()
+
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            text = data.decode("utf-16")
+
+        return text
+
+    except Exception as e:
+
+        raise Exception(
+            f"Could not read TXT file: {e}"
+        )
+
+
+# ============================================================
+# EXTRACT TEXT FROM PDF
+# ============================================================
+
+def extract_pdf(uploaded_file):
+
+    try:
+
+        pdf_bytes = uploaded_file.read()
+
+        pdf_file = io.BytesIO(
+            pdf_bytes
+        )
+
+        reader = PyPDF2.PdfReader(
+            pdf_file
+        )
+
+        pages = []
+
+        for page in reader.pages:
+
+            page_text = page.extract_text()
+
+            if page_text:
+                pages.append(page_text)
+
+        return "\n\n".join(pages)
+
+    except Exception as e:
+
+        raise Exception(
+            f"Could not read PDF file: {e}"
+        )
+
+
+# ============================================================
+# EXTRACT TEXT FROM WORD DOCX
+# ============================================================
+
+def extract_docx(uploaded_file):
+
+    try:
+
+        document = Document(
+            uploaded_file
+        )
+
+        paragraphs = []
+
+        for paragraph in document.paragraphs:
+
+            if paragraph.text.strip():
+
+                paragraphs.append(
+                    paragraph.text
+                )
+
+        return "\n\n".join(
+            paragraphs
+        )
+
+    except Exception as e:
+
+        raise Exception(
+            f"Could not read Word file: {e}"
+        )
+
+
+# ============================================================
+# EXTRACT TEXT FROM UPLOADED FILE
+# ============================================================
+
+def extract_uploaded_text(uploaded_file):
+
+    if uploaded_file is None:
+        return ""
+
+    filename = uploaded_file.name.lower()
+
+    if filename.endswith(".txt"):
+
+        return extract_txt(
+            uploaded_file
+        )
+
+    elif filename.endswith(".pdf"):
+
+        return extract_pdf(
+            uploaded_file
+        )
+
+    elif filename.endswith(".docx"):
+
+        return extract_docx(
+            uploaded_file
+        )
+
+    else:
+
+        raise Exception(
+            "Unsupported file type."
+        )
+
+
+# ============================================================
+# CREATE AGED MANUSCRIPT PAPER
 # ============================================================
 
 def create_aged_paper(
@@ -236,19 +408,13 @@ def create_aged_paper(
     height=1800
 ):
 
-    random.seed(
-        random.randint(
-            1,
-            999999
-        )
+    seed = random.randint(
+        1,
+        999999
     )
 
-    np.random.seed(
-        random.randint(
-            1,
-            999999
-        )
-    )
+    random.seed(seed)
+    np.random.seed(seed)
 
     base_color = np.array(
         [
@@ -318,12 +484,14 @@ def create_aged_paper(
         )
 
         stain_draw.ellipse(
+
             (
                 x - radius,
                 y - radius,
                 x + radius,
                 y + radius
             ),
+
             fill=(
                 90,
                 60,
@@ -353,20 +521,24 @@ def create_aged_paper(
     ]
 
     distance_left = x_grid
+
     distance_right = (
         width - 1 - x_grid
     )
 
     distance_top = y_grid
+
     distance_bottom = (
         height - 1 - y_grid
     )
 
     distance = np.minimum(
+
         np.minimum(
             distance_left,
             distance_right
         ),
+
         np.minimum(
             distance_top,
             distance_bottom
@@ -404,11 +576,13 @@ def create_aged_paper(
         dark_layer
     )
 
-    return image.convert("RGB")
+    return image.convert(
+        "RGB"
+    )
 
 
 # ============================================================
-# 8. TEXT WRAPPING
+# TEXT WRAPPING
 # ============================================================
 
 def wrap_text(
@@ -420,22 +594,23 @@ def wrap_text(
 
     lines = []
 
-    paragraphs = text.split("\n")
+    paragraphs = text.split(
+        "\n"
+    )
 
     for paragraph in paragraphs:
 
         paragraph = paragraph.strip()
 
         if paragraph == "":
+
             lines.append("")
+
             continue
 
         words = paragraph.split()
 
-        # ----------------------------------------------------
-        # Normal text
-        # ----------------------------------------------------
-
+        # Text with spaces
         if len(words) > 1:
 
             current_line = ""
@@ -466,6 +641,7 @@ def wrap_text(
                 else:
 
                     if current_line:
+
                         lines.append(
                             current_line
                         )
@@ -473,14 +649,12 @@ def wrap_text(
                     current_line = word
 
             if current_line:
+
                 lines.append(
                     current_line
                 )
 
-        # ----------------------------------------------------
         # Text without spaces
-        # ----------------------------------------------------
-
         else:
 
             current_line = ""
@@ -510,6 +684,7 @@ def wrap_text(
                 else:
 
                     if current_line:
+
                         lines.append(
                             current_line
                         )
@@ -517,6 +692,7 @@ def wrap_text(
                     current_line = char
 
             if current_line:
+
                 lines.append(
                     current_line
                 )
@@ -525,124 +701,15 @@ def wrap_text(
 
 
 # ============================================================
-# 9. PDF TEXT EXTRACTION
-# ============================================================
-
-def extract_pdf_text(
-    uploaded_file
-):
-
-    try:
-
-        reader = PdfReader(
-            uploaded_file
-        )
-
-        pages = []
-
-        for page in reader.pages:
-
-            text = page.extract_text()
-
-            if text:
-                pages.append(
-                    text
-                )
-
-        return "\n\n".join(
-            pages
-        ).strip()
-
-    except Exception as e:
-
-        st.error(
-            f"PDF reading error: {e}"
-        )
-
-        return ""
-
-
-# ============================================================
-# 10. WORD TEXT EXTRACTION
-# ============================================================
-
-def extract_docx_text(
-    uploaded_file
-):
-
-    try:
-
-        document = Document(
-            uploaded_file
-        )
-
-        paragraphs = []
-
-        for paragraph in document.paragraphs:
-
-            text = paragraph.text.strip()
-
-            if text:
-                paragraphs.append(
-                    text
-                )
-
-        return "\n\n".join(
-            paragraphs
-        ).strip()
-
-    except Exception as e:
-
-        st.error(
-            f"Word file reading error: {e}"
-        )
-
-        return ""
-
-
-# ============================================================
-# 11. EXTRACT UPLOADED FILE
-# ============================================================
-
-def extract_uploaded_text(
-    uploaded_file
-):
-
-    if uploaded_file is None:
-        return ""
-
-    filename = uploaded_file.name.lower()
-
-    if filename.endswith(".pdf"):
-
-        return extract_pdf_text(
-            uploaded_file
-        )
-
-    elif filename.endswith(".docx"):
-
-        return extract_docx_text(
-            uploaded_file
-        )
-
-    else:
-
-        st.error(
-            "Only PDF and DOCX files are supported."
-        )
-
-        return ""
-
-
-# ============================================================
-# 12. CREATE MARKDOWN ANNOTATION
+# CREATE MARKDOWN ANNOTATION
 # ============================================================
 
 def create_annotation(
     script,
     text,
     image_filename,
-    source_filename
+    image_width,
+    image_height
 ):
 
     annotation_filename = (
@@ -657,15 +724,13 @@ def create_annotation(
         annotation_filename
     )
 
+    clean_text = text.strip()
+
     content = f"""# Synthetic Manuscript Annotation
 
 ## Image
 
 `{image_filename}`
-
-## Source File
-
-`{source_filename}`
 
 ## Script
 
@@ -673,12 +738,12 @@ def create_annotation(
 
 ## Image Dimensions
 
-- Width: 1400px
-- Height: 1800px
+- Width: {image_width}px
+- Height: {image_height}px
 
 ## Text
 
-{text}
+{clean_text}
 
 ## Dataset Type
 
@@ -703,32 +768,45 @@ Synthetic Indic Manuscript Generator
 
 
 # ============================================================
-# 13. GENERATE MANUSCRIPT
+# GENERATE MANUSCRIPT
 # ============================================================
 
 def generate_manuscript(
     script,
-    text,
-    source_filename
+    text
 ):
 
-    if not text:
-        return None, None
+    if text is None:
+        raise ValueError(
+            "Please enter some text."
+        )
 
-    font_path = FONT_PATHS[script]
+    text = text.strip()
+
+    if text == "":
+        raise ValueError(
+            "Please enter some text."
+        )
+
+    if script not in FONT_PATHS:
+        raise ValueError(
+            "Invalid script selected."
+        )
+
+    font_path = FONT_PATHS.get(
+        script
+    )
 
     if not validate_font_file(
         font_path
     ):
 
-        st.error(
-            f"{script} font is not available."
+        raise ValueError(
+            f"{script} font is missing or invalid."
         )
 
-        return None, None
-
     # --------------------------------------------------------
-    # Image settings
+    # Image configuration
     # --------------------------------------------------------
 
     WIDTH = 1400
@@ -741,7 +819,7 @@ def generate_manuscript(
     TOP_MARGIN = 160
 
     # --------------------------------------------------------
-    # Paper
+    # Create paper
     # --------------------------------------------------------
 
     image = create_aged_paper(
@@ -754,7 +832,7 @@ def generate_manuscript(
     )
 
     # --------------------------------------------------------
-    # Font
+    # Load font
     # --------------------------------------------------------
 
     font = ImageFont.truetype(
@@ -763,7 +841,7 @@ def generate_manuscript(
     )
 
     # --------------------------------------------------------
-    # Wrap
+    # Text wrapping
     # --------------------------------------------------------
 
     max_width = (
@@ -780,7 +858,7 @@ def generate_manuscript(
     )
 
     # --------------------------------------------------------
-    # Ink
+    # Historical ink
     # --------------------------------------------------------
 
     ink_colors = [
@@ -790,15 +868,16 @@ def generate_manuscript(
         (55, 38, 23),
         (60, 40, 24),
         (65, 43, 25)
+
     ]
+
+    # --------------------------------------------------------
+    # Draw text
+    # --------------------------------------------------------
 
     y_position = TOP_MARGIN
 
     line_height = 82
-
-    # --------------------------------------------------------
-    # Draw
-    # --------------------------------------------------------
 
     for line in lines:
 
@@ -827,6 +906,7 @@ def generate_manuscript(
             (
                 LEFT_MARGIN
                 + x_variation,
+
                 y_position
                 + y_variation
             ),
@@ -840,12 +920,15 @@ def generate_manuscript(
 
         y_position += line_height
 
-        if y_position >= HEIGHT - 150:
+        if y_position >= (
+            HEIGHT - 150
+        ):
+
             break
 
-    # ========================================================
-    # INK IMPERFECTIONS
-    # ========================================================
+    # --------------------------------------------------------
+    # Ink imperfections
+    # --------------------------------------------------------
 
     overlay = Image.new(
         "RGBA",
@@ -870,7 +953,14 @@ def generate_manuscript(
         )
 
         radius = random.choice(
-            [1, 1, 1, 2, 2, 3]
+            [
+                1,
+                1,
+                1,
+                2,
+                2,
+                3
+            ]
         )
 
         alpha = random.randint(
@@ -879,12 +969,14 @@ def generate_manuscript(
         )
 
         overlay_draw.ellipse(
+
             (
                 x - radius,
                 y - radius,
                 x + radius,
                 y + radius
             ),
+
             fill=(
                 40,
                 30,
@@ -908,9 +1000,9 @@ def generate_manuscript(
         "RGB"
     )
 
-    # ========================================================
-    # SAVE PNG
-    # ========================================================
+    # --------------------------------------------------------
+    # Save image
+    # --------------------------------------------------------
 
     image_filename = (
         "manuscript_"
@@ -918,8 +1010,8 @@ def generate_manuscript(
         + "_"
         + str(
             random.randint(
-                10000,
-                99999
+                100000,
+                999999
             )
         )
         + ".png"
@@ -932,25 +1024,36 @@ def generate_manuscript(
 
     image.save(
         image_path,
-        "PNG"
+        quality=95
     )
 
-    # ========================================================
-    # ANNOTATION
-    # ========================================================
+    # --------------------------------------------------------
+    # Annotation
+    # --------------------------------------------------------
 
     annotation_path = create_annotation(
-        script,
-        text,
-        image_filename,
-        source_filename
+
+        script=script,
+
+        text=text,
+
+        image_filename=image_filename,
+
+        image_width=WIDTH,
+
+        image_height=HEIGHT
     )
 
-    return image, annotation_path
+    return (
+        image,
+        image_path,
+        annotation_path,
+        image_filename
+    )
 
 
 # ============================================================
-# 14. TITLE
+# STREAMLIT USER INTERFACE
 # ============================================================
 
 st.title(
@@ -958,13 +1061,28 @@ st.title(
 )
 
 st.write(
-    "Convert Unicode text, PDF files, or Word documents "
-    "into synthetic historical-style Indic manuscripts."
+    "Generate synthetic historical-style manuscripts "
+    "from Unicode text, PDF, Word or TXT files."
+)
+
+st.markdown(
+    """
+### Supported Scripts
+
+**Devanagari • Modi • Sharada**
+
+### Supported Input Files
+
+- 📄 PDF
+- 📝 Word / DOCX
+- 📃 TXT
+- ✍️ Direct Unicode text
+"""
 )
 
 
 # ============================================================
-# 15. FONT STATUS
+# FONT STATUS
 # ============================================================
 
 with st.expander(
@@ -972,24 +1090,27 @@ with st.expander(
     expanded=False
 ):
 
-    for script, ready in font_status.items():
+    for script, status in font_status.items():
 
-        if ready:
+        if status:
+
             st.success(
                 f"{script}: READY"
             )
+
         else:
+
             st.error(
-                f"{script}: NOT AVAILABLE"
+                f"{script}: FONT NOT FOUND"
             )
 
 
 # ============================================================
-# 16. SCRIPT SELECTION
+# SCRIPT SELECTION
 # ============================================================
 
 script = st.selectbox(
-    "Select Manuscript Script",
+    "Select Script",
     [
         "Devanagari",
         "Modi",
@@ -999,353 +1120,223 @@ script = st.selectbox(
 
 
 # ============================================================
-# 17. FILE UPLOAD
+# FILE UPLOAD
 # ============================================================
-
-st.subheader(
-    "📂 Upload PDF or Word File"
-)
 
 uploaded_file = st.file_uploader(
 
-    "Upload your document",
+    "Upload PDF / Word / TXT file",
 
     type=[
         "pdf",
-        "docx"
-    ],
-
-    help="Upload a PDF or Microsoft Word DOCX file."
+        "docx",
+        "txt"
+    ]
 )
 
 
 # ============================================================
-# 18. PROCESS FILE
+# EXTRACT FILE TEXT
 # ============================================================
+
+extracted_text = ""
 
 if uploaded_file is not None:
 
     st.info(
-        f"Uploaded: {uploaded_file.name}"
+        f"Uploaded file: {uploaded_file.name}"
     )
 
-    if st.button(
-        "📖 Extract Text",
-        use_container_width=True
-    ):
+    try:
 
         extracted_text = extract_uploaded_text(
             uploaded_file
         )
 
-        if extracted_text:
-
-            st.session_state[
-                "extracted_text"
-            ] = extracted_text
+        if extracted_text.strip():
 
             st.success(
                 "Text extracted successfully."
             )
 
+            st.text_area(
+                "Extracted Text",
+                extracted_text,
+                height=250
+            )
+
         else:
 
-            st.error(
-                "No readable text was found."
+            st.warning(
+                "No text could be extracted from this file."
             )
+
+    except Exception as e:
+
+        st.error(
+            str(e)
+        )
 
 
 # ============================================================
-# 19. EXTRACTED TEXT
+# MANUAL TEXT INPUT
 # ============================================================
 
-if "extracted_text" in st.session_state:
+manual_text = st.text_area(
 
-    st.subheader(
-        "📖 Extracted Text"
-    )
+    "Or enter / paste Unicode text",
 
-    edited_text = st.text_area(
-
-        "You can edit the extracted text before generating the manuscript.",
-
-        value=st.session_state[
-            "extracted_text"
-        ],
-
-        height=300
-    )
-
-
-    # ========================================================
-    # GENERATE
-    # ========================================================
-
-    if st.button(
-        "📜 Generate Manuscript",
-        type="primary",
-        use_container_width=True
-    ):
-
-        with st.spinner(
-            "Generating manuscript..."
-        ):
-
-            image, annotation_path = generate_manuscript(
-
-                script,
-
-                edited_text,
-
-                uploaded_file.name
-            )
-
-
-        if image is not None:
-
-            st.success(
-                "Manuscript generated successfully!"
-            )
-
-            st.subheader(
-                "📜 Generated Manuscript"
-            )
-
-            st.image(
-                image,
-                use_container_width=True
-            )
-
-
-            # ------------------------------------------------
-            # Download PNG
-            # ------------------------------------------------
-
-            image_filename = (
-                os.path.basename(
-                    image.filename
-                )
-                if getattr(
-                    image,
-                    "filename",
-                    None
-                )
-                else None
-            )
-
-
-            # Save image to memory
-            import io
-
-            image_bytes = io.BytesIO()
-
-            image.save(
-                image_bytes,
-                format="PNG"
-            )
-
-            image_bytes.seek(0)
-
-
-            st.download_button(
-
-                label="⬇️ Download Manuscript PNG",
-
-                data=image_bytes,
-
-                file_name=(
-                    "synthetic_manuscript.png"
-                ),
-
-                mime="image/png",
-
-                use_container_width=True
-            )
-
-
-            # ------------------------------------------------
-            # Download annotation
-            # ------------------------------------------------
-
-            with open(
-                annotation_path,
-                "rb"
-            ) as file:
-
-                annotation_data = file.read()
-
-
-            st.download_button(
-
-                label="⬇️ Download Annotation MD",
-
-                data=annotation_data,
-
-                file_name=os.path.basename(
-                    annotation_path
-                ),
-
-                mime="text/markdown",
-
-                use_container_width=True
-            )
-
-
-# ============================================================
-# 20. DIRECT TEXT INPUT
-# ============================================================
-
-st.divider()
-
-st.subheader(
-    "✍️ Or Enter Text Directly"
-)
-
-
-direct_text = st.text_area(
-
-    "Enter Unicode text",
+    height=250,
 
     placeholder=(
-        "Example:\n"
-        "नमस्ते महाराष्ट्र\n"
-        "भारत एक महान देश है."
-    ),
-
-    height=250
+        "Enter Hindi, Marathi, Sanskrit, "
+        "Modi or Sharada Unicode text here..."
+    )
 )
 
 
-if st.button(
-    "📜 Generate From Direct Text",
+# ============================================================
+# CHOOSE INPUT
+# ============================================================
+
+if uploaded_file is not None and extracted_text.strip():
+
+    final_text = extracted_text
+
+else:
+
+    final_text = manual_text
+
+
+# ============================================================
+# GENERATE BUTTON
+# ============================================================
+
+generate_button = st.button(
+
+    "📜 Generate Manuscript",
+
+    type="primary",
+
     use_container_width=True
-):
+)
 
-    if not direct_text.strip():
 
-        st.warning(
-            "Please enter some text."
+# ============================================================
+# GENERATE
+# ============================================================
+
+if generate_button:
+
+    if not final_text.strip():
+
+        st.error(
+            "Please upload a PDF/Word/TXT file "
+            "or enter some Unicode text."
+        )
+
+    elif not font_status.get(script, False):
+
+        st.error(
+            f"{script} font is not available."
         )
 
     else:
 
         with st.spinner(
-            "Generating manuscript..."
+            "Generating synthetic manuscript..."
         ):
 
-            image, annotation_path = generate_manuscript(
+            try:
 
-                script,
+                (
+                    image,
+                    image_path,
+                    annotation_path,
+                    image_filename
+                ) = generate_manuscript(
+                    script,
+                    final_text
+                )
 
-                direct_text,
+                st.success(
+                    "Manuscript generated successfully!"
+                )
 
-                "Direct Text Input"
-            )
+                # ------------------------------------------------
+                # Display image
+                # ------------------------------------------------
 
+                st.subheader(
+                    "🖼️ Generated Manuscript"
+                )
 
-        if image is not None:
+                st.image(
+                    image,
+                    caption=image_filename,
+                    use_container_width=True
+                )
 
-            st.success(
-                "Manuscript generated successfully!"
-            )
+                # ------------------------------------------------
+                # Download PNG
+                # ------------------------------------------------
 
-            st.image(
-                image,
-                use_container_width=True
-            )
+                with open(
+                    image_path,
+                    "rb"
+                ) as image_file:
 
+                    st.download_button(
 
-            # ------------------------------------------------
-            # PNG download
-            # ------------------------------------------------
+                        label="⬇️ Download Manuscript PNG",
 
-            import io
+                        data=image_file.read(),
 
-            image_bytes = io.BytesIO()
+                        file_name=image_filename,
 
-            image.save(
-                image_bytes,
-                format="PNG"
-            )
+                        mime="image/png",
 
-            image_bytes.seek(0)
+                        use_container_width=True
+                    )
 
+                # ------------------------------------------------
+                # Download Markdown
+                # ------------------------------------------------
 
-            st.download_button(
+                with open(
+                    annotation_path,
+                    "rb"
+                ) as annotation_file:
 
-                label="⬇️ Download Manuscript PNG",
+                    st.download_button(
 
-                data=image_bytes,
+                        label="⬇️ Download Annotation Markdown",
 
-                file_name=(
-                    "synthetic_manuscript.png"
-                ),
+                        data=annotation_file.read(),
 
-                mime="image/png",
+                        file_name=os.path.basename(
+                            annotation_path
+                        ),
 
-                use_container_width=True
-            )
+                        mime="text/markdown",
 
+                        use_container_width=True
+                    )
 
-            # ------------------------------------------------
-            # Annotation download
-            # ------------------------------------------------
+            except Exception as e:
 
-            with open(
-                annotation_path,
-                "rb"
-            ) as file:
-
-                annotation_data = file.read()
-
-
-            st.download_button(
-
-                label="⬇️ Download Annotation MD",
-
-                data=annotation_data,
-
-                file_name=os.path.basename(
-                    annotation_path
-                ),
-
-                mime="text/markdown",
-
-                use_container_width=True
-            )
+                st.error(
+                    f"Generation failed: {e}"
+                )
 
 
 # ============================================================
-# 21. INFORMATION
+# FOOTER
 # ============================================================
 
-st.divider()
+st.markdown("---")
 
-st.markdown(
-    """
-### 🔄 Project Workflow
-
-**PDF / DOCX / Text**
-↓  
-**Text Extraction**
-↓  
-**Select Indic Script**
-↓  
-**Create Aged Paper**
-↓  
-**Render Text**
-↓  
-**Generate Manuscript PNG**
-↓  
-**Create Markdown Annotation**
-
-### Supported
-
-- 📄 PDF
-- 📝 Word DOCX
-- ✍️ Unicode Text
-- 🔤 Devanagari
-- 🔤 Modi
-- 🔤 Sharada
-"""
+st.caption(
+    "Synthetic Indic Manuscript Generator | "
+    "Devanagari • Modi • Sharada"
 )
