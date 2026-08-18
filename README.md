@@ -1,5 +1,7 @@
 # 📜 Synthetic Indic Manuscript Generator
 
+LINK :- https://by-kailashdake.streamlit.app/
+
 A Streamlit application that converts Unicode text into synthetic historical-style manuscript images.
 
 ## Supported Scripts
