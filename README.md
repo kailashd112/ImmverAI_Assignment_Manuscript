@@ -64,30 +64,4 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-The browser will open the Streamlit application.
-
-## GitHub Upload
-
-```bash
-git init
-git add .
-git commit -m "Initial commit - Synthetic Indic Manuscript Generator"
-git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/synthetic-indic-manuscript.git
-git push -u origin main
-```
-
-## Streamlit Community Cloud
-
-1. Push this project to GitHub.
-2. Open Streamlit Community Cloud.
-3. Connect your GitHub account.
-4. Select this repository.
-5. Select `app.py` as the main file.
-6. Deploy.
-
-The application downloads the required fonts automatically when it starts.
-
-## Important Note
-
 The generated images are synthetic historical-style images. They are not scans or reproductions of real historical manuscripts.
