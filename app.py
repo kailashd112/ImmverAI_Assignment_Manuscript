@@ -2,228 +2,1350 @@ import os
 import random
 import requests
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import streamlit as st
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from pypdf import PdfReader
+from docx import Document
+
+
+# ============================================================
+# 1. PAGE CONFIGURATION
+# ============================================================
+
+st.set_page_config(
+    page_title="Synthetic Indic Manuscript Generator",
+    page_icon="📜",
+    layout="wide"
+)
+
+
+# ============================================================
+# 2. PROJECT DIRECTORIES
+# ============================================================
+
+BASE_DIR = os.path.dirname(
+    os.path.abspath(__file__)
+)
+
 FONT_DIR = os.path.join(BASE_DIR, "fonts")
-OUTPUT_DIR = os.path.join(BASE_DIR, "output")
-ANNOTATION_DIR = os.path.join(BASE_DIR, "annotations")
+
+DEVANAGARI_DIR = os.path.join(
+    FONT_DIR,
+    "devanagari"
+)
+
+MODI_DIR = os.path.join(
+    FONT_DIR,
+    "modi"
+)
+
+SHARADA_DIR = os.path.join(
+    FONT_DIR,
+    "sharada"
+)
+
+OUTPUT_DIR = os.path.join(
+    BASE_DIR,
+    "output"
+)
+
+ANNOTATION_DIR = os.path.join(
+    BASE_DIR,
+    "annotations"
+)
+
+
+for folder in [
+    BASE_DIR,
+    FONT_DIR,
+    DEVANAGARI_DIR,
+    MODI_DIR,
+    SHARADA_DIR,
+    OUTPUT_DIR,
+    ANNOTATION_DIR
+]:
+    os.makedirs(
+        folder,
+        exist_ok=True
+    )
+
+
+# ============================================================
+# 3. FONT PATHS
+# ============================================================
 
 FONT_PATHS = {
-    "Devanagari": os.path.join(FONT_DIR, "devanagari", "NotoSansDevanagari-Regular.ttf"),
-    "Modi": os.path.join(FONT_DIR, "modi", "NotoSansModi-Regular.ttf"),
-    "Sharada": os.path.join(FONT_DIR, "sharada", "NotoSansSharada-Regular.ttf"),
+
+    "Devanagari": os.path.join(
+        DEVANAGARI_DIR,
+        "NotoSansDevanagari-Regular.ttf"
+    ),
+
+    "Modi": os.path.join(
+        MODI_DIR,
+        "NotoSansModi-Regular.ttf"
+    ),
+
+    "Sharada": os.path.join(
+        SHARADA_DIR,
+        "NotoSansSharada-Regular.ttf"
+    )
 }
+
+
+# ============================================================
+# 4. FONT DOWNLOAD URLS
+# ============================================================
 
 FONT_URLS = {
+
     "Devanagari": [
         "https://notofonts.github.io/devanagari/fonts/NotoSansDevanagari/full/ttf/NotoSansDevanagari-Regular.ttf",
-        "https://raw.githubusercontent.com/notofonts/devanagari/main/fonts/ttf/NotoSansDevanagari/NotoSansDevanagari-Regular.ttf",
+        "https://raw.githubusercontent.com/notofonts/devanagari/main/fonts/ttf/NotoSansDevanagari/NotoSansDevanagari-Regular.ttf"
     ],
+
     "Modi": [
         "https://notofonts.github.io/modi/fonts/NotoSansModi/full/ttf/NotoSansModi-Regular.ttf",
-        "https://raw.githubusercontent.com/notofonts/modi/main/fonts/ttf/NotoSansModi/NotoSansModi-Regular.ttf",
+        "https://raw.githubusercontent.com/notofonts/modi/main/fonts/ttf/NotoSansModi/NotoSansModi-Regular.ttf"
     ],
+
     "Sharada": [
         "https://notofonts.github.io/sharada/fonts/NotoSansSharada/full/ttf/NotoSansSharada-Regular.ttf",
-        "https://raw.githubusercontent.com/notofonts/sharada/main/fonts/ttf/NotoSansSharada/NotoSansSharada-Regular.ttf",
-    ],
+        "https://raw.githubusercontent.com/notofonts/sharada/main/fonts/ttf/NotoSansSharada/NotoSansSharada-Regular.ttf"
+    ]
 }
 
-for p in FONT_PATHS.values():
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-os.makedirs(ANNOTATION_DIR, exist_ok=True)
 
-def validate_font_file(path):
-    if not os.path.exists(path) or os.path.getsize(path) < 10000:
+# ============================================================
+# 5. FONT VALIDATION
+# ============================================================
+
+def validate_font_file(file_path):
+
+    if not os.path.exists(file_path):
         return False
+
     try:
-        ImageFont.truetype(path, 32)
-        return True
+
+        if os.path.getsize(file_path) < 10000:
+            return False
+
+        font = ImageFont.truetype(
+            file_path,
+            32
+        )
+
+        return font is not None
+
     except Exception:
         return False
 
-@st.cache_resource(show_spinner=False)
-def ensure_fonts():
+
+# ============================================================
+# 6. DOWNLOAD FONT
+# ============================================================
+
+@st.cache_resource
+def setup_fonts():
+
     status = {}
-    for script, path in FONT_PATHS.items():
-        if validate_font_file(path):
+
+    for script in FONT_PATHS:
+
+        output_path = FONT_PATHS[script]
+
+        if validate_font_file(
+            output_path
+        ):
+
             status[script] = True
             continue
+
         status[script] = False
+
         for url in FONT_URLS[script]:
+
             try:
-                r = requests.get(url, timeout=60, headers={"User-Agent": "Mozilla/5.0"})
-                if r.status_code == 200 and len(r.content) >= 10000:
-                    tmp = path + ".tmp"
-                    with open(tmp, "wb") as f:
-                        f.write(r.content)
-                    if validate_font_file(tmp):
-                        os.replace(tmp, path)
-                        status[script] = True
-                        break
-                    if os.path.exists(tmp):
-                        os.remove(tmp)
+
+                response = requests.get(
+                    url,
+                    timeout=60,
+                    headers={
+                        "User-Agent":
+                        "Mozilla/5.0"
+                    }
+                )
+
+                if response.status_code != 200:
+                    continue
+
+                if len(response.content) < 10000:
+                    continue
+
+                temp_path = (
+                    output_path
+                    + ".tmp"
+                )
+
+                with open(
+                    temp_path,
+                    "wb"
+                ) as file:
+
+                    file.write(
+                        response.content
+                    )
+
+                if validate_font_file(
+                    temp_path
+                ):
+
+                    os.replace(
+                        temp_path,
+                        output_path
+                    )
+
+                    status[script] = True
+
+                    break
+
+                if os.path.exists(
+                    temp_path
+                ):
+
+                    os.remove(
+                        temp_path
+                    )
+
             except Exception:
-                pass
+                continue
+
     return status
 
-def create_aged_paper(width=1400, height=1800):
-    seed = random.randint(1, 999999)
-    random.seed(seed)
-    np.random.seed(seed)
-    base = np.array([205, 188, 150], dtype=np.float32)
-    noise = np.random.normal(0, 10, (height, width, 1))
-    arr = np.clip(base + noise, 0, 255).astype(np.uint8)
-    image = Image.fromarray(arr).convert("RGBA")
 
-    stains = Image.new("RGBA", (width, height), (0,0,0,0))
-    sd = ImageDraw.Draw(stains)
+font_status = setup_fonts()
+
+
+# ============================================================
+# 7. CREATE AGED PAPER
+# ============================================================
+
+def create_aged_paper(
+    width=1400,
+    height=1800
+):
+
+    random.seed(
+        random.randint(
+            1,
+            999999
+        )
+    )
+
+    np.random.seed(
+        random.randint(
+            1,
+            999999
+        )
+    )
+
+    base_color = np.array(
+        [
+            205,
+            188,
+            150
+        ],
+        dtype=np.float32
+    )
+
+    noise = np.random.normal(
+        0,
+        10,
+        (height, width, 1)
+    )
+
+    image_array = (
+        base_color + noise
+    )
+
+    image_array = np.clip(
+        image_array,
+        0,
+        255
+    ).astype(
+        np.uint8
+    )
+
+    image = Image.fromarray(
+        image_array
+    )
+
+    # --------------------------------------------------------
+    # Stains
+    # --------------------------------------------------------
+
+    stains = Image.new(
+        "RGBA",
+        (width, height),
+        (0, 0, 0, 0)
+    )
+
+    stain_draw = ImageDraw.Draw(
+        stains
+    )
+
     for _ in range(45):
-        x, y = random.randint(0,width), random.randint(0,height)
-        radius = random.randint(20,120)
-        alpha = random.randint(8,40)
-        sd.ellipse((x-radius,y-radius,x+radius,y+radius), fill=(90,60,30,alpha))
-    stains = stains.filter(ImageFilter.GaussianBlur(30))
-    image = Image.alpha_composite(image, stains)
 
-    yy, xx = np.ogrid[:height,:width]
-    distance = np.minimum(np.minimum(xx, width-1-xx), np.minimum(yy, height-1-yy))
-    edge_strength = np.clip(1-distance/250,0,1)
-    edge = Image.fromarray((edge_strength*75).astype(np.uint8))
-    dark = Image.new("RGBA",(width,height),(70,45,20,0))
-    dark.putalpha(edge)
-    return Image.alpha_composite(image,dark).convert("RGB")
+        x = random.randint(
+            0,
+            width
+        )
 
-def wrap_text(draw, text, font, max_width):
+        y = random.randint(
+            0,
+            height
+        )
+
+        radius = random.randint(
+            20,
+            120
+        )
+
+        alpha = random.randint(
+            8,
+            40
+        )
+
+        stain_draw.ellipse(
+            (
+                x - radius,
+                y - radius,
+                x + radius,
+                y + radius
+            ),
+            fill=(
+                90,
+                60,
+                30,
+                alpha
+            )
+        )
+
+    stains = stains.filter(
+        ImageFilter.GaussianBlur(
+            30
+        )
+    )
+
+    image = Image.alpha_composite(
+        image.convert("RGBA"),
+        stains
+    )
+
+    # --------------------------------------------------------
+    # Dark edges
+    # --------------------------------------------------------
+
+    y_grid, x_grid = np.ogrid[
+        :height,
+        :width
+    ]
+
+    distance_left = x_grid
+    distance_right = (
+        width - 1 - x_grid
+    )
+
+    distance_top = y_grid
+    distance_bottom = (
+        height - 1 - y_grid
+    )
+
+    distance = np.minimum(
+        np.minimum(
+            distance_left,
+            distance_right
+        ),
+        np.minimum(
+            distance_top,
+            distance_bottom
+        )
+    )
+
+    edge_strength = np.clip(
+        1 - distance / 250,
+        0,
+        1
+    )
+
+    edge_array = (
+        edge_strength * 75
+    ).astype(
+        np.uint8
+    )
+
+    edge = Image.fromarray(
+        edge_array
+    )
+
+    dark_layer = Image.new(
+        "RGBA",
+        (width, height),
+        (70, 45, 20, 0)
+    )
+
+    dark_layer.putalpha(
+        edge
+    )
+
+    image = Image.alpha_composite(
+        image,
+        dark_layer
+    )
+
+    return image.convert("RGB")
+
+
+# ============================================================
+# 8. TEXT WRAPPING
+# ============================================================
+
+def wrap_text(
+    draw,
+    text,
+    font,
+    max_width
+):
+
     lines = []
-    for paragraph in text.split("\n"):
+
+    paragraphs = text.split("\n")
+
+    for paragraph in paragraphs:
+
         paragraph = paragraph.strip()
-        if not paragraph:
+
+        if paragraph == "":
             lines.append("")
             continue
+
         words = paragraph.split()
+
+        # ----------------------------------------------------
+        # Normal text
+        # ----------------------------------------------------
+
         if len(words) > 1:
-            current = ""
+
+            current_line = ""
+
             for word in words:
-                test = (current + " " + word).strip()
-                if draw.textbbox((0,0), test, font=font)[2] <= max_width:
-                    current = test
+
+                test_line = (
+                    current_line
+                    + " "
+                    + word
+                ).strip()
+
+                bbox = draw.textbbox(
+                    (0, 0),
+                    test_line,
+                    font=font
+                )
+
+                text_width = (
+                    bbox[2]
+                    - bbox[0]
+                )
+
+                if text_width <= max_width:
+
+                    current_line = test_line
+
                 else:
-                    if current:
-                        lines.append(current)
-                    current = word
-            if current:
-                lines.append(current)
+
+                    if current_line:
+                        lines.append(
+                            current_line
+                        )
+
+                    current_line = word
+
+            if current_line:
+                lines.append(
+                    current_line
+                )
+
+        # ----------------------------------------------------
+        # Text without spaces
+        # ----------------------------------------------------
+
         else:
-            current = ""
+
+            current_line = ""
+
             for char in paragraph:
-                test = current + char
-                if draw.textbbox((0,0), test, font=font)[2] <= max_width:
-                    current = test
+
+                test_line = (
+                    current_line
+                    + char
+                )
+
+                bbox = draw.textbbox(
+                    (0, 0),
+                    test_line,
+                    font=font
+                )
+
+                text_width = (
+                    bbox[2]
+                    - bbox[0]
+                )
+
+                if text_width <= max_width:
+
+                    current_line = test_line
+
                 else:
-                    if current:
-                        lines.append(current)
-                    current = char
-            if current:
-                lines.append(current)
+
+                    if current_line:
+                        lines.append(
+                            current_line
+                        )
+
+                    current_line = char
+
+            if current_line:
+                lines.append(
+                    current_line
+                )
+
     return lines
 
-def create_annotation(script, text, image_filename, width, height):
-    path = os.path.join(ANNOTATION_DIR, os.path.splitext(image_filename)[0] + ".md")
+
+# ============================================================
+# 9. PDF TEXT EXTRACTION
+# ============================================================
+
+def extract_pdf_text(
+    uploaded_file
+):
+
+    try:
+
+        reader = PdfReader(
+            uploaded_file
+        )
+
+        pages = []
+
+        for page in reader.pages:
+
+            text = page.extract_text()
+
+            if text:
+                pages.append(
+                    text
+                )
+
+        return "\n\n".join(
+            pages
+        ).strip()
+
+    except Exception as e:
+
+        st.error(
+            f"PDF reading error: {e}"
+        )
+
+        return ""
+
+
+# ============================================================
+# 10. WORD TEXT EXTRACTION
+# ============================================================
+
+def extract_docx_text(
+    uploaded_file
+):
+
+    try:
+
+        document = Document(
+            uploaded_file
+        )
+
+        paragraphs = []
+
+        for paragraph in document.paragraphs:
+
+            text = paragraph.text.strip()
+
+            if text:
+                paragraphs.append(
+                    text
+                )
+
+        return "\n\n".join(
+            paragraphs
+        ).strip()
+
+    except Exception as e:
+
+        st.error(
+            f"Word file reading error: {e}"
+        )
+
+        return ""
+
+
+# ============================================================
+# 11. EXTRACT UPLOADED FILE
+# ============================================================
+
+def extract_uploaded_text(
+    uploaded_file
+):
+
+    if uploaded_file is None:
+        return ""
+
+    filename = uploaded_file.name.lower()
+
+    if filename.endswith(".pdf"):
+
+        return extract_pdf_text(
+            uploaded_file
+        )
+
+    elif filename.endswith(".docx"):
+
+        return extract_docx_text(
+            uploaded_file
+        )
+
+    else:
+
+        st.error(
+            "Only PDF and DOCX files are supported."
+        )
+
+        return ""
+
+
+# ============================================================
+# 12. CREATE MARKDOWN ANNOTATION
+# ============================================================
+
+def create_annotation(
+    script,
+    text,
+    image_filename,
+    source_filename
+):
+
+    annotation_filename = (
+        os.path.splitext(
+            image_filename
+        )[0]
+        + ".md"
+    )
+
+    annotation_path = os.path.join(
+        ANNOTATION_DIR,
+        annotation_filename
+    )
+
     content = f"""# Synthetic Manuscript Annotation
 
 ## Image
+
 `{image_filename}`
 
+## Source File
+
+`{source_filename}`
+
 ## Script
+
 {script}
 
 ## Image Dimensions
-- Width: {width}px
-- Height: {height}px
+
+- Width: 1400px
+- Height: 1800px
 
 ## Text
-{text.strip()}
+
+{text}
 
 ## Dataset Type
+
 Synthetic historical manuscript
 
 ## Generator
+
 Synthetic Indic Manuscript Generator
 """
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(content)
-    return path
 
-def generate_manuscript(script, text):
-    text = (text or "").strip()
+    with open(
+        annotation_path,
+        "w",
+        encoding="utf-8"
+    ) as file:
+
+        file.write(
+            content
+        )
+
+    return annotation_path
+
+
+# ============================================================
+# 13. GENERATE MANUSCRIPT
+# ============================================================
+
+def generate_manuscript(
+    script,
+    text,
+    source_filename
+):
+
     if not text:
-        raise ValueError("Please enter some text.")
-    if not validate_font_file(FONT_PATHS[script]):
-        raise ValueError(f"{script} font is unavailable. Check your internet connection and restart the app.")
+        return None, None
 
-    width, height = 1400, 1800
-    image = create_aged_paper(width, height)
-    draw = ImageDraw.Draw(image)
-    font = ImageFont.truetype(FONT_PATHS[script], 52)
-    lines = wrap_text(draw, text, font, width-240)
+    font_path = FONT_PATHS[script]
 
-    ink_colors = [(45,32,20),(50,35,22),(55,38,23),(60,40,24),(65,43,25)]
-    y = 160
+    if not validate_font_file(
+        font_path
+    ):
+
+        st.error(
+            f"{script} font is not available."
+        )
+
+        return None, None
+
+    # --------------------------------------------------------
+    # Image settings
+    # --------------------------------------------------------
+
+    WIDTH = 1400
+    HEIGHT = 1800
+
+    FONT_SIZE = 52
+
+    LEFT_MARGIN = 120
+    RIGHT_MARGIN = 120
+    TOP_MARGIN = 160
+
+    # --------------------------------------------------------
+    # Paper
+    # --------------------------------------------------------
+
+    image = create_aged_paper(
+        WIDTH,
+        HEIGHT
+    )
+
+    draw = ImageDraw.Draw(
+        image
+    )
+
+    # --------------------------------------------------------
+    # Font
+    # --------------------------------------------------------
+
+    font = ImageFont.truetype(
+        font_path,
+        FONT_SIZE
+    )
+
+    # --------------------------------------------------------
+    # Wrap
+    # --------------------------------------------------------
+
+    max_width = (
+        WIDTH
+        - LEFT_MARGIN
+        - RIGHT_MARGIN
+    )
+
+    lines = wrap_text(
+        draw,
+        text,
+        font,
+        max_width
+    )
+
+    # --------------------------------------------------------
+    # Ink
+    # --------------------------------------------------------
+
+    ink_colors = [
+
+        (45, 32, 20),
+        (50, 35, 22),
+        (55, 38, 23),
+        (60, 40, 24),
+        (65, 43, 25)
+    ]
+
+    y_position = TOP_MARGIN
+
+    line_height = 82
+
+    # --------------------------------------------------------
+    # Draw
+    # --------------------------------------------------------
+
     for line in lines:
-        if not line:
-            y += 40
+
+        if line == "":
+
+            y_position += 40
+
             continue
-        draw.text((120+random.randint(-7,7), y+random.randint(-3,3)),
-                  line, font=font, fill=random.choice(ink_colors))
-        y += 82
-        if y >= height-150:
+
+        x_variation = random.randint(
+            -7,
+            7
+        )
+
+        y_variation = random.randint(
+            -3,
+            3
+        )
+
+        ink_color = random.choice(
+            ink_colors
+        )
+
+        draw.text(
+
+            (
+                LEFT_MARGIN
+                + x_variation,
+                y_position
+                + y_variation
+            ),
+
+            line,
+
+            font=font,
+
+            fill=ink_color
+        )
+
+        y_position += line_height
+
+        if y_position >= HEIGHT - 150:
             break
 
-    overlay = Image.new("RGBA", image.size, (0,0,0,0))
-    od = ImageDraw.Draw(overlay)
+    # ========================================================
+    # INK IMPERFECTIONS
+    # ========================================================
+
+    overlay = Image.new(
+        "RGBA",
+        image.size,
+        (0, 0, 0, 0)
+    )
+
+    overlay_draw = ImageDraw.Draw(
+        overlay
+    )
+
     for _ in range(350):
-        x, yy = random.randint(80,width-80), random.randint(80,height-80)
-        r = random.choice([1,1,1,2,2,3])
-        od.ellipse((x-r,yy-r,x+r,yy+r), fill=(40,30,20,random.randint(10,65)))
-    overlay = overlay.filter(ImageFilter.GaussianBlur(1))
-    image = Image.alpha_composite(image.convert("RGBA"), overlay).convert("RGB")
 
-    filename = f"manuscript_{script.lower()}_{random.randint(100000,999999)}.png"
-    image_path = os.path.join(OUTPUT_DIR, filename)
-    image.save(image_path, "PNG")
-    annotation_path = create_annotation(script,text,filename,width,height)
-    return image, image_path, annotation_path
+        x = random.randint(
+            80,
+            WIDTH - 80
+        )
 
-st.set_page_config(page_title="Synthetic Indic Manuscript Generator", page_icon="📜", layout="centered")
-st.title("📜 Synthetic Indic Manuscript Generator")
-st.write("Generate synthetic historical-style manuscript images from Unicode text.")
+        y = random.randint(
+            80,
+            HEIGHT - 80
+        )
 
-with st.spinner("Checking Indic fonts..."):
-    font_status = ensure_fonts()
+        radius = random.choice(
+            [1, 1, 1, 2, 2, 3]
+        )
 
-cols = st.columns(3)
-for col, script in zip(cols, FONT_PATHS):
-    col.metric(script, "READY" if font_status[script] else "MISSING")
+        alpha = random.randint(
+            10,
+            65
+        )
 
-script = st.selectbox("Select Script", list(FONT_PATHS.keys()))
-text = st.text_area("Enter Manuscript Text", height=250, placeholder="Enter or paste Unicode text here...")
+        overlay_draw.ellipse(
+            (
+                x - radius,
+                y - radius,
+                x + radius,
+                y + radius
+            ),
+            fill=(
+                40,
+                30,
+                20,
+                alpha
+            )
+        )
 
-if st.button("📜 Generate Manuscript", type="primary", use_container_width=True):
-    try:
-        image, image_path, annotation_path = generate_manuscript(script, text)
-        st.success("Manuscript generated successfully.")
-        st.image(image, caption=f"{script} manuscript", use_container_width=True)
+    overlay = overlay.filter(
+        ImageFilter.GaussianBlur(
+            1
+        )
+    )
 
-        with open(image_path, "rb") as f:
-            st.download_button("⬇️ Download PNG", f, file_name=os.path.basename(image_path), mime="image/png")
+    image = Image.alpha_composite(
+        image.convert("RGBA"),
+        overlay
+    )
 
-        with open(annotation_path, "rb") as f:
-            st.download_button("⬇️ Download Annotation (.md)", f, file_name=os.path.basename(annotation_path), mime="text/markdown")
+    image = image.convert(
+        "RGB"
+    )
 
-        st.caption(f"Saved locally: {image_path}")
-    except Exception as e:
-        st.error(str(e))
+    # ========================================================
+    # SAVE PNG
+    # ========================================================
+
+    image_filename = (
+        "manuscript_"
+        + script.lower()
+        + "_"
+        + str(
+            random.randint(
+                10000,
+                99999
+            )
+        )
+        + ".png"
+    )
+
+    image_path = os.path.join(
+        OUTPUT_DIR,
+        image_filename
+    )
+
+    image.save(
+        image_path,
+        "PNG"
+    )
+
+    # ========================================================
+    # ANNOTATION
+    # ========================================================
+
+    annotation_path = create_annotation(
+        script,
+        text,
+        image_filename,
+        source_filename
+    )
+
+    return image, annotation_path
+
+
+# ============================================================
+# 14. TITLE
+# ============================================================
+
+st.title(
+    "📜 Synthetic Indic Manuscript Generator"
+)
+
+st.write(
+    "Convert Unicode text, PDF files, or Word documents "
+    "into synthetic historical-style Indic manuscripts."
+)
+
+
+# ============================================================
+# 15. FONT STATUS
+# ============================================================
+
+with st.expander(
+    "🔤 Font Status",
+    expanded=False
+):
+
+    for script, ready in font_status.items():
+
+        if ready:
+            st.success(
+                f"{script}: READY"
+            )
+        else:
+            st.error(
+                f"{script}: NOT AVAILABLE"
+            )
+
+
+# ============================================================
+# 16. SCRIPT SELECTION
+# ============================================================
+
+script = st.selectbox(
+    "Select Manuscript Script",
+    [
+        "Devanagari",
+        "Modi",
+        "Sharada"
+    ]
+)
+
+
+# ============================================================
+# 17. FILE UPLOAD
+# ============================================================
+
+st.subheader(
+    "📂 Upload PDF or Word File"
+)
+
+uploaded_file = st.file_uploader(
+
+    "Upload your document",
+
+    type=[
+        "pdf",
+        "docx"
+    ],
+
+    help="Upload a PDF or Microsoft Word DOCX file."
+)
+
+
+# ============================================================
+# 18. PROCESS FILE
+# ============================================================
+
+if uploaded_file is not None:
+
+    st.info(
+        f"Uploaded: {uploaded_file.name}"
+    )
+
+    if st.button(
+        "📖 Extract Text",
+        use_container_width=True
+    ):
+
+        extracted_text = extract_uploaded_text(
+            uploaded_file
+        )
+
+        if extracted_text:
+
+            st.session_state[
+                "extracted_text"
+            ] = extracted_text
+
+            st.success(
+                "Text extracted successfully."
+            )
+
+        else:
+
+            st.error(
+                "No readable text was found."
+            )
+
+
+# ============================================================
+# 19. EXTRACTED TEXT
+# ============================================================
+
+if "extracted_text" in st.session_state:
+
+    st.subheader(
+        "📖 Extracted Text"
+    )
+
+    edited_text = st.text_area(
+
+        "You can edit the extracted text before generating the manuscript.",
+
+        value=st.session_state[
+            "extracted_text"
+        ],
+
+        height=300
+    )
+
+
+    # ========================================================
+    # GENERATE
+    # ========================================================
+
+    if st.button(
+        "📜 Generate Manuscript",
+        type="primary",
+        use_container_width=True
+    ):
+
+        with st.spinner(
+            "Generating manuscript..."
+        ):
+
+            image, annotation_path = generate_manuscript(
+
+                script,
+
+                edited_text,
+
+                uploaded_file.name
+            )
+
+
+        if image is not None:
+
+            st.success(
+                "Manuscript generated successfully!"
+            )
+
+            st.subheader(
+                "📜 Generated Manuscript"
+            )
+
+            st.image(
+                image,
+                use_container_width=True
+            )
+
+
+            # ------------------------------------------------
+            # Download PNG
+            # ------------------------------------------------
+
+            image_filename = (
+                os.path.basename(
+                    image.filename
+                )
+                if getattr(
+                    image,
+                    "filename",
+                    None
+                )
+                else None
+            )
+
+
+            # Save image to memory
+            import io
+
+            image_bytes = io.BytesIO()
+
+            image.save(
+                image_bytes,
+                format="PNG"
+            )
+
+            image_bytes.seek(0)
+
+
+            st.download_button(
+
+                label="⬇️ Download Manuscript PNG",
+
+                data=image_bytes,
+
+                file_name=(
+                    "synthetic_manuscript.png"
+                ),
+
+                mime="image/png",
+
+                use_container_width=True
+            )
+
+
+            # ------------------------------------------------
+            # Download annotation
+            # ------------------------------------------------
+
+            with open(
+                annotation_path,
+                "rb"
+            ) as file:
+
+                annotation_data = file.read()
+
+
+            st.download_button(
+
+                label="⬇️ Download Annotation MD",
+
+                data=annotation_data,
+
+                file_name=os.path.basename(
+                    annotation_path
+                ),
+
+                mime="text/markdown",
+
+                use_container_width=True
+            )
+
+
+# ============================================================
+# 20. DIRECT TEXT INPUT
+# ============================================================
+
+st.divider()
+
+st.subheader(
+    "✍️ Or Enter Text Directly"
+)
+
+
+direct_text = st.text_area(
+
+    "Enter Unicode text",
+
+    placeholder=(
+        "Example:\n"
+        "नमस्ते महाराष्ट्र\n"
+        "भारत एक महान देश है."
+    ),
+
+    height=250
+)
+
+
+if st.button(
+    "📜 Generate From Direct Text",
+    use_container_width=True
+):
+
+    if not direct_text.strip():
+
+        st.warning(
+            "Please enter some text."
+        )
+
+    else:
+
+        with st.spinner(
+            "Generating manuscript..."
+        ):
+
+            image, annotation_path = generate_manuscript(
+
+                script,
+
+                direct_text,
+
+                "Direct Text Input"
+            )
+
+
+        if image is not None:
+
+            st.success(
+                "Manuscript generated successfully!"
+            )
+
+            st.image(
+                image,
+                use_container_width=True
+            )
+
+
+            # ------------------------------------------------
+            # PNG download
+            # ------------------------------------------------
+
+            import io
+
+            image_bytes = io.BytesIO()
+
+            image.save(
+                image_bytes,
+                format="PNG"
+            )
+
+            image_bytes.seek(0)
+
+
+            st.download_button(
+
+                label="⬇️ Download Manuscript PNG",
+
+                data=image_bytes,
+
+                file_name=(
+                    "synthetic_manuscript.png"
+                ),
+
+                mime="image/png",
+
+                use_container_width=True
+            )
+
+
+            # ------------------------------------------------
+            # Annotation download
+            # ------------------------------------------------
+
+            with open(
+                annotation_path,
+                "rb"
+            ) as file:
+
+                annotation_data = file.read()
+
+
+            st.download_button(
+
+                label="⬇️ Download Annotation MD",
+
+                data=annotation_data,
+
+                file_name=os.path.basename(
+                    annotation_path
+                ),
+
+                mime="text/markdown",
+
+                use_container_width=True
+            )
+
+
+# ============================================================
+# 21. INFORMATION
+# ============================================================
+
+st.divider()
+
+st.markdown(
+    """
+### 🔄 Project Workflow
+
+**PDF / DOCX / Text**
+↓  
+**Text Extraction**
+↓  
+**Select Indic Script**
+↓  
+**Create Aged Paper**
+↓  
+**Render Text**
+↓  
+**Generate Manuscript PNG**
+↓  
+**Create Markdown Annotation**
+
+### Supported
+
+- 📄 PDF
+- 📝 Word DOCX
+- ✍️ Unicode Text
+- 🔤 Devanagari
+- 🔤 Modi
+- 🔤 Sharada
+"""
+)
